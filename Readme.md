@@ -4,7 +4,7 @@
 
 **技术栈：** Python、OpenCV、ViTPose、HRNet、EasyMocap、SMPL、Bundle Adjustment（BA）
 
-## 核心工作（简历重点）
+## 核心工作
 
 以下四项是对项目工作的概括，便于快速展示；仓库还包含下文列出的同步、异常相机处理与质量诊断等工程优化。
 
