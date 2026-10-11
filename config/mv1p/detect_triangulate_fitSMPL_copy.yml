@@ -1,0 +1,132 @@
+module: myeasymocap.stages.basestage.MultiStage
+args:
+  output: output/triangulate_fitSMPL
+  at_step:
+    triangulate:
+      module: myeasymocap.operations.triangulate.SimpleTriangulate
+      key_from_data: [cameras, keypoints]
+      key_keep: [cameras, imgnames, keypoints]
+      args:
+        mode: iterative
+    visualize:
+      module: myeasymocap.io.vis.Vis3D
+      skip: True
+      key_from_data: [images, cameras]
+      key_from_previous: [keypoints3d]
+      args:
+        scale: 0.5
+        mode: center
+
+  at_final:
+    load_body_model:
+      module: myeasymocap.io.model.SMPLLoader
+      args:
+        model_path: data/bodymodels/SMPL_python_v.1.1.0/smpl/models/basicmodel_neutral_lbs_10_207_0_v1.1.0.pkl
+        regressor_path: data/smplx/J_regressor_body25.npy
+
+    init_params:
+      module: myeasymocap.operations.init.InitParams
+      key_from_data: [keypoints3d]
+      args:
+        num_poses: 69
+        num_shapes: 10
+
+    fitShape:
+      module: myeasymocap.operations.optimizer.Optimizer
+      key_from_data: [keypoints3d]
+      key_from_previous: [model, params]
+      args:
+        optimizer_args: {optim_type: lbfgs}
+        optimize_keys: [shapes]
+        loss:
+          k3d:
+            weight: 100.
+            module: myeasymocap.operations.loss.LimbLength
+            key_from_output: [keypoints]
+            key_from_infos: [keypoints3d]
+            args:
+              kintree: [[8, 1], [2, 5], [2, 3], [5, 6], [3, 4], [6, 7], [2, 3], [5, 6], [3, 4], [6, 7], [2, 3], [5, 6], [3, 4], [6, 7], [1, 0], [9, 12], [9, 10], [10, 11], [12, 13], [13, 14]]
+          regshape:
+            weight: 0.1
+            module: myeasymocap.operations.loss.RegLoss
+            key_from_output: [shapes]
+            key_from_infos: []
+            args:
+              key: shapes
+              norm: l2
+
+    init_RT:
+      module: myeasymocap.operations.optimizer.Optimizer
+      key_from_data: [keypoints, keypoints3d]
+      key_from_previous: [model, params]
+      args:
+        optimizer_args: {optim_type: lbfgs}
+        optimize_keys: [Th, Rh]
+        loss:
+          k3d:
+            weight: 100.
+            module: myeasymocap.operations.loss.Keypoints3D
+            key_from_output: [keypoints]
+            key_from_infos: [keypoints3d]
+            args:
+              norm: l2
+              index_est: [2, 5, 9, 12]
+              index_gt: [2, 5, 9, 12]
+          smooth:
+            weight: 1.
+            module: myeasymocap.operations.loss.Smooth
+            key_from_output: [Th, keypoints]
+            key_from_infos: []
+            args:
+              keys: [keypoints, Th]
+              smooth_type: [Linear, Linear]
+              norm: [l2, l2]
+              order: [2, 2]
+              weights: [10., 100.]
+              window_weight: [0.5, 0.3, 0.1, 0.1]
+
+    refine_poses:
+      repeat: 2
+      module: myeasymocap.operations.optimizer.Optimizer
+      key_from_data: [keypoints, keypoints3d]
+      key_from_previous: [model, params]
+      args:
+        optimizer_args: {optim_type: lbfgs}
+        optimize_keys: [poses, Rh, Th]
+        loss:
+          k3d:
+            weight: 1000.
+            module: myeasymocap.operations.loss.Keypoints3D
+            key_from_output: [keypoints]
+            key_from_infos: [keypoints3d]
+            args:
+              norm: l2
+              norm_info: 0.02
+          smooth:
+            weight: 1.
+            module: myeasymocap.operations.loss.Smooth
+            key_from_output: [poses, Th, keypoints]
+            key_from_infos: []
+            args:
+              keys: [Th, poses, keypoints]
+              smooth_type: [Linear, Linear, Linear]
+              norm: [l2, l2, l2]
+              order: [2, 2, 2]
+              weights: [100., 10., 10.]
+              window_weight: [0.5, 0.3, 0.1, 0.1]
+          prior:
+            weight: 0.1
+            module: easymocap.multistage.gmm.GMMPrior
+            key_from_output: [poses]
+            key_from_infos: []
+            args:
+              start: 0
+              end: 69
+
+    write:
+      module: myeasymocap.io.write.WriteSMPL
+      key_from_data: [meta]
+      key_from_previous: [params, model]
+      args:
+        name: smpl
+        write_vertices: True
